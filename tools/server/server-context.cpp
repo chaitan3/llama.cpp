@@ -360,6 +360,10 @@ struct server_slot {
 
         const size_t cur_size = cur_size_tgt + cur_size_dft;
 
+        if (cur_size == 0) {
+            return false;
+        }
+
         SRV_TRC(" - saving prompt with length %d, total state size = %.3f MiB (draft: %.3f MiB)\n",
                 (int) prompt.tokens.size(), cur_size / (1024.0 * 1024.0), cur_size_dft / (1024.0 * 1024.0));
 
@@ -1177,6 +1181,17 @@ private:
                 // note: for sleeping == false, event is emitted by load_model()
             }
             SRV_INF("%s", "server is entering sleeping state\n");
+
+            // save idle slot states to the prompt cache, so they survive the reload after sleeping
+            if (prompt_cache && params_base.sleep_preserve_cache && params_base.cache_idle_slots) {
+                for (auto & slot : slots) {
+                    if (!slot.is_processing()) {
+                        slot.prompt_save(*prompt_cache);
+                    }
+                }
+                prompt_cache->update();
+            }
+
             destroy();
         } else {
             SRV_INF("%s", "server is exiting sleeping state\n");
@@ -1629,7 +1644,10 @@ private:
             }
             SRV_TRC("%s", "use `--cache-ram 0` to disable the prompt cache\n");
 
-            prompt_cache = std::make_unique<server_prompt_cache>(params_base.cache_ram_mib, n_ctx);
+            // keep existing states when resuming from sleeping with cache preservation enabled
+            if (!prompt_cache || !params_base.sleep_preserve_cache) {
+                prompt_cache = std::make_unique<server_prompt_cache>(params_base.cache_ram_mib, n_ctx);
+            }
         } else {
             SRV_TRC("%s", "prompt cache is disabled - use `--cache-ram N` to enable it\n");
         }
