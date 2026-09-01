@@ -116,7 +116,9 @@ public:
         // a model can hold more than one cache, so the tensor names have to stay unique
                  const char *   name_tag = "",
         // lightning indexer keys are rotated with the indexer RoPE parameters
-                       bool   is_indexer = false);
+                       bool   is_indexer = false,
+        // full-size SWA cache: masked cells are retained, so they can be saved in the seq state
+                       bool   swa_full = false);
 
     ~llama_kv_cache() = default;
 
@@ -293,6 +295,9 @@ private:
     const uint32_t n_swa = 0;
 
     const bool is_indexer = false;
+
+    // full-size SWA cache: never evicts SWA-masked cells (see llama_kv_cache_iswa)
+    const bool swa_full = false;
 
     // env: LLAMA_ATTN_ROT_DISABLE
     uint32_t n_rot_k = 0;

@@ -102,7 +102,8 @@ llama_kv_cache_iswa::llama_kv_cache_iswa(
     kv_swa = std::make_unique<llama_kv_cache>(
             model, no_alloc, hparams, type_k, type_v,
             v_trans, offload, unified, size_swa, n_seq_max,
-            hparams.n_swa, hparams.swa_type, mem_other_swa, filter_swa, reuse, share);
+            hparams.n_swa, hparams.swa_type, mem_other_swa, filter_swa, reuse, share,
+            "", false, swa_full);
 }
 
 void llama_kv_cache_iswa::clear(bool data) {
