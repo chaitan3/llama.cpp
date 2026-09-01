@@ -2599,7 +2599,7 @@ The server supports an automatic sleep mode that activates after a specified per
 
 When the server enters sleep mode, the model and its associated memory (including the KV cache) are unloaded from RAM to conserve resources. Any new incoming task will automatically trigger the model to reload.
 
-Starting with `--sleep-preserve-cache`, idle slots are saved to the prompt cache before sleeping (requires `--cache-ram`, which is enabled by default), so cached prompts are reused after waking up instead of being reprocessed. The flag is disabled by default.
+Starting with `--sleep-preserve-cache` (enabled by default, disable with `--no-sleep-preserve-cache`), idle slots are saved to the prompt cache before sleeping (requires `--cache-ram`, which is enabled by default), so cached prompts are reused after waking up instead of being reprocessed.
 
 The sleeping status can be retrieved from the `GET /props` endpoint (or `/props?model=(model_name)` in router mode).
 

@@ -3881,9 +3881,10 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
     ).set_examples({LLAMA_EXAMPLE_SERVER}));
     add_opt(common_arg(
         {"--sleep-preserve-cache"},
+        {"--no-sleep-preserve-cache"},
         string_format("save idle slot states to the prompt cache before sleeping, and restore them after waking up (default: %s)", params.sleep_preserve_cache ? "enabled" : "disabled"),
-        [](common_params & params) {
-            params.sleep_preserve_cache = true;
+        [](common_params & params, bool value) {
+            params.sleep_preserve_cache = value;
         }
     ).set_examples({LLAMA_EXAMPLE_SERVER}));
     add_opt(common_arg(
