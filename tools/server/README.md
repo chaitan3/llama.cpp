@@ -2601,6 +2601,8 @@ When the server enters sleep mode, the model and its associated memory (includin
 
 Starting with `--sleep-preserve-cache` (enabled by default, disable with `--no-sleep-preserve-cache`), idle slots are saved to the prompt cache before sleeping (requires `--cache-ram`, which is enabled by default), so cached prompts are reused after waking up instead of being reprocessed.
 
+With `--cache-ram-file PATH`, the prompt cache is additionally saved to a file when the server enters sleep mode and on exit, and restored at startup. This allows cached prompts to survive a server restart. Each model must use its own file (in router mode, set a distinct path per model). The file is only loaded if it was written for the same model and context configuration; it is validated by a fingerprint and ignored otherwise.
+
 The sleeping status can be retrieved from the `GET /props` endpoint (or `/props?model=(model_name)` in router mode).
 
 Note that the following endpoints are exempt from being considered as incoming tasks. They do not trigger model reloading and do not reset the idle timer:

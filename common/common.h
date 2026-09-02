@@ -668,6 +668,10 @@ struct common_params {
     bool        server_connect      = false;
     std::string server_connect_code = "";
 
+    // if not empty, the prompt cache is saved to this file on sleep and exit, and restored at startup
+    // note: only one server instance (one model) should use each file
+    std::string cache_ram_file;
+
     std::string public_path   = "";                                                                         // NOLINT
     std::string api_prefix    = "";                                                                         // NOLINT
     std::string chat_template = "";                                                                         // NOLINT

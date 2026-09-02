@@ -1173,6 +1173,34 @@ private:
         mctx = nullptr;
     }
 
+    // fingerprint of the model and context configuration, used to validate prompt cache files
+    // note: state data is only compatible with the exact same cache layout, so a mismatched file must not be restored
+    uint64_t prompt_cache_fingerprint() const {
+        uint64_t h = 1469598103934665603ull;
+        auto hash_str = [&h](const std::string & s) {
+            for (char c : s) {
+                h ^= (uint8_t) c;
+                h *= 1099511628211ull;
+            }
+        };
+
+        char desc[256] = "";
+        llama_model_desc(model_tgt, desc, sizeof(desc));
+        hash_str(desc);
+        if (model_dft) {
+            llama_model_desc(model_dft, desc, sizeof(desc));
+            hash_str(desc);
+        }
+        hash_str(std::to_string(llama_n_ctx(ctx_tgt)));
+        hash_str(std::to_string(llama_n_seq_max(ctx_tgt)));
+        hash_str(std::to_string((int) params_base.cache_type_k));
+        hash_str(std::to_string((int) params_base.cache_type_v));
+        hash_str(std::to_string(params_base.swa_full));
+        hash_str(std::to_string(params_base.n_ctx_checkpoints));
+
+        return h;
+    }
+
     void handle_sleeping_state(bool new_state) {
         GGML_ASSERT(sleeping != new_state);
         if (new_state) {
@@ -1192,7 +1220,14 @@ private:
                 prompt_cache->update();
             }
 
+            const uint64_t pc_fingerprint = prompt_cache ? prompt_cache_fingerprint() : 0;
+
             destroy();
+
+            // persist the prompt cache to disk only after freeing the model, so the VRAM is released as soon as possible
+            if (prompt_cache && !params_base.cache_ram_file.empty()) {
+                prompt_cache->save_to_file(params_base.cache_ram_file, pc_fingerprint);
+            }
         } else {
             SRV_INF("%s", "server is exiting sleeping state\n");
             if (!load_model(params_base)) {
@@ -1647,9 +1682,17 @@ private:
             // keep existing states when resuming from sleeping with cache preservation enabled
             if (!prompt_cache || !params_base.sleep_preserve_cache) {
                 prompt_cache = std::make_unique<server_prompt_cache>(params_base.cache_ram_mib, n_ctx);
+
+                // restore states saved to disk by a previous instance
+                if (!params_base.cache_ram_file.empty()) {
+                    prompt_cache->load_from_file(params_base.cache_ram_file, prompt_cache_fingerprint());
+                }
             }
         } else {
             SRV_TRC("%s", "prompt cache is disabled - use `--cache-ram N` to enable it\n");
+            if (!params_base.cache_ram_file.empty()) {
+                SRV_WRN("%s", "cache-ram-file is set, but the prompt cache is disabled - use `--cache-ram N` to enable it\n");
+            }
         }
         SRV_TRC("%s", "for more info see https://github.com/ggml-org/llama.cpp/pull/16391\n");
 
@@ -5181,6 +5224,14 @@ void server_context::start_loop() {
 
 void server_context::terminate() {
     impl->queue_tasks.terminate();
+}
+
+void server_context::save_prompt_cache_file() {
+    if (!impl->prompt_cache || impl->params_base.cache_ram_file.empty()) {
+        return;
+    }
+
+    impl->prompt_cache->save_to_file(impl->params_base.cache_ram_file, impl->prompt_cache_fingerprint());
 }
 
 llama_context * server_context::get_llama_context() const {

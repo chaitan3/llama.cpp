@@ -11,6 +11,8 @@
 #include "server-common.h"
 
 #include <sstream>
+#include <fstream>
+#include <cstdio>
 
 //
 // task_params

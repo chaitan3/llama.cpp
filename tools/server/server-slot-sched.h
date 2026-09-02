@@ -101,6 +101,11 @@ struct server_prompt_cache {
     bool load(server_prompt & prompt, const server_tokens & tokens_new, const std::vector<common_adapter_lora_info> & lora_new, llama_context * ctx_tgt, llama_context * ctx_dft, int32_t id_slot);
 
     void update();
+
+    // save/restore all states to/from a file, returns number of states restored (-1 on error)
+    // the fingerprint must match the one used when saving, otherwise the file is not loaded
+    bool save_to_file(const std::string & path, uint64_t fingerprint) const;
+    int  load_from_file(const std::string & path, uint64_t fingerprint);
 };
 
 // what the scheduler needs to know about a slot

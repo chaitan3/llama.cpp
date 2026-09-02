@@ -742,6 +742,9 @@ static int server_run_instance(common_params & params, server_role & role, commo
     // this call blocks the main thread until queue_tasks.terminate() is called
     ctx_server.start_loop();
 
+    // persist the prompt cache before the model is freed
+    ctx_server.save_prompt_cache_file();
+
     clean_up();
     ctx_http.join();
     if (monitor_thread.joinable()) {

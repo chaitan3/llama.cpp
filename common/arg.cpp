@@ -1705,6 +1705,13 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_env("LLAMA_ARG_CACHE_RAM").set_examples({LLAMA_EXAMPLE_SERVER, LLAMA_EXAMPLE_CLI}));
     add_opt(common_arg(
+        {"--cache-ram-file"}, "PATH",
+        "save the prompt cache to this file when entering sleep and at exit, and restore it at startup; each model should use its own file (requires cache-ram)",
+        [](common_params & params, const std::string & value) {
+            params.cache_ram_file = value;
+        }
+    ).set_env("LLAMA_ARG_CACHE_RAM_FILE").set_examples({LLAMA_EXAMPLE_SERVER}));
+    add_opt(common_arg(
         {"-kvu", "--kv-unified"},
         {"-no-kvu", "--no-kv-unified"},
         "use single unified KV buffer shared across all sequences (default: enabled if number of slots is auto)",

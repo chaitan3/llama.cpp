@@ -5,6 +5,10 @@
 #include "log.h"
 
 #include <algorithm>
+#include <fstream>
+
+static const uint32_t PCACHE_FILE_MAGIC   = ('g' << 0) | ('p' << 8) | ('c' << 16) | ('f' << 24);
+static const uint32_t PCACHE_FILE_VERSION = 1;
 
 //
 // server_prompt
@@ -433,4 +437,195 @@ server_slot_plan server_slot_sched::select(const std::vector<server_slot_info> &
     update_cache = update_cache && !task.is_stateless();
 
     return { ret->id, update_cache };
+}
+
+//
+// server_prompt_cache : file persistence
+//
+
+bool server_prompt_cache::save_to_file(const std::string & path, uint64_t fingerprint) const {
+    // serialize the tokens first, so multimodal prompts (which cannot be serialized) can be skipped
+    std::vector<std::pair<const server_prompt_cache_state *, std::vector<char>>> packed_states;
+    size_t n_skipped = 0;
+    for (const auto & state : states) {
+        try {
+            packed_states.emplace_back(&state, state.prompt.tokens.serialize());
+        } catch (const std::exception &) {
+            n_skipped++;
+        }
+    }
+    if (packed_states.empty()) {
+        return false;
+    }
+    // write to a temporary file and rename, so a failed save does not destroy the previous state
+    const std::string path_tmp = path + ".tmp";
+    std::ofstream fout(path_tmp, std::ios::binary);
+    if (!fout.is_open()) {
+        SRV_WRN(" - failed to open prompt cache file for writing: '%s'\n", path_tmp.c_str());
+        return false;
+    }
+    auto write = [&fout](const void * ptr, size_t size) {
+        fout.write((const char *) ptr, size);
+    };
+    auto write_u64 = [&write](uint64_t val) {
+        write(&val, sizeof(val));
+    };
+    auto write_u32 = [&write](uint32_t val) {
+        write(&val, sizeof(val));
+    };
+    auto write_i64 = [&write](int64_t val) {
+        write(&val, sizeof(val));
+    };
+    auto write_i32 = [&write](int32_t val) {
+        write(&val, sizeof(val));
+    };
+    auto write_pos = [&write](llama_pos val) {
+        write(&val, sizeof(val));
+    };
+    auto write_blob = [&](const auto & data) {
+        write_u64(data.size());
+        if (!data.empty()) {
+            write(data.data(), data.size());
+        }
+    };
+    write_u32(PCACHE_FILE_MAGIC);
+    write_u32(PCACHE_FILE_VERSION);
+    write_u64(fingerprint);
+    write_u32(packed_states.size());
+    for (const auto & packed : packed_states) {
+        write_u64(packed.second.size());
+        if (!packed.second.empty()) {
+            write(packed.second.data(), packed.second.size());
+        }
+        write_u32(packed.first->prompt.checkpoints.size());
+        for (const auto & ckpt : packed.first->prompt.checkpoints) {
+            write_i64(ckpt->n_tokens);
+            write_i32((int32_t) ckpt->id_task);
+            write_pos(ckpt->pos_min);
+            write_pos(ckpt->pos_max);
+            write_blob(ckpt->data_tgt);
+            write_blob(ckpt->data_dft);
+            write_blob(ckpt->data_spec);
+        }
+        write_blob(packed.first->data.main);
+        write_blob(packed.first->data.drft);
+    }
+    fout.close();
+    if (fout.fail()) {
+        SRV_WRN(" - failed to write prompt cache file: '%s'\n", path_tmp.c_str());
+        return false;
+    }
+    if (std::rename(path_tmp.c_str(), path.c_str()) != 0) {
+        SRV_WRN(" - failed to rename prompt cache file: '%s' -> '%s'\n", path_tmp.c_str(), path.c_str());
+        return false;
+    }
+    if (n_skipped > 0) {
+        SRV_WRN(" - skipped %zu multimodal prompt(s) when saving the prompt cache file\n", n_skipped);
+    }
+    SRV_INF(" - saved %zu prompt(s) to the prompt cache file '%s' (%.3f MiB)\n",
+            packed_states.size(), path.c_str(), size() / (1024.0 * 1024.0));
+    return true;
+}
+int server_prompt_cache::load_from_file(const std::string & path, uint64_t fingerprint) {
+    std::ifstream fin(path, std::ios::binary);
+    if (!fin.is_open()) {
+        // not an error: the file may not exist yet
+        return -1;
+    }
+    fin.seekg(0, std::ios::end);
+    const uint64_t file_size = fin.tellg();
+    fin.seekg(0, std::ios::beg);
+    auto read = [&fin](void * ptr, size_t size) {
+        fin.read((char *) ptr, size);
+    };
+    auto read_u64 = [&read](uint64_t & val) {
+        read(&val, sizeof(val));
+    };
+    auto read_u32 = [&read](uint32_t & val) {
+        read(&val, sizeof(val));
+    };
+    auto read_i64 = [&read](int64_t & val) {
+        read(&val, sizeof(val));
+    };
+    auto read_i32 = [&read](int32_t & val) {
+        read(&val, sizeof(val));
+    };
+    auto read_pos = [&read](llama_pos & val) {
+        read(&val, sizeof(val));
+    };
+    auto read_blob = [&](auto & data) {
+        uint64_t size = 0;
+        read_u64(size);
+        if (size > file_size) {
+            fin.setstate(std::ios::failbit);
+            return;
+        }
+        data.resize(size);
+        if (!data.empty()) {
+            read(data.data(), data.size());
+        }
+    };
+    uint32_t magic            = 0;
+    uint32_t version          = 0;
+    uint64_t file_fingerprint = 0;
+    uint32_t n_states         = 0;
+    read_u32(magic);
+    read_u32(version);
+    read_u64(file_fingerprint);
+    read_u32(n_states);
+    if (!fin || magic != PCACHE_FILE_MAGIC || version != PCACHE_FILE_VERSION) {
+        SRV_WRN(" - invalid prompt cache file: '%s'\n", path.c_str());
+        return -1;
+    }
+    if (file_fingerprint != fingerprint) {
+        SRV_WRN(" - prompt cache file '%s' was saved for a different model or context configuration, ignoring it\n", path.c_str());
+        return -1;
+    }
+    states.clear();
+    int n_loaded = 0;
+    for (uint32_t i = 0; i < n_states; i++) {
+        server_prompt_cache_state state;
+        uint64_t n_bytes = 0;
+        read_u64(n_bytes);
+        if (n_bytes > file_size || n_bytes % sizeof(llama_token) != 0) {
+            fin.setstate(std::ios::failbit);
+            break;
+        }
+        llama_tokens packed(n_bytes / sizeof(llama_token));
+        if (n_bytes > 0) {
+            read(packed.data(), n_bytes);
+        }
+        uint32_t n_checkpoints = 0;
+        read_u32(n_checkpoints);
+        for (uint32_t j = 0; j < n_checkpoints && fin; j++) {
+            common_prompt_checkpoint ckpt;
+            int32_t id_task = 0;
+            read_i64(ckpt.n_tokens);
+            read_i32(id_task);
+            read_pos(ckpt.pos_min);
+            read_pos(ckpt.pos_max);
+            read_blob(ckpt.data_tgt);
+            read_blob(ckpt.data_dft);
+            read_blob(ckpt.data_spec);
+            ckpt.id_task = id_task;
+            state.prompt.checkpoints.push_back(std::make_shared<const common_prompt_checkpoint>(std::move(ckpt)));
+        }
+        read_blob(state.data.main);
+        read_blob(state.data.drft);
+        if (!fin) {
+            SRV_WRN(" - failed to read prompt cache file: '%s'\n", path.c_str());
+            states.clear();
+            return -1;
+        }
+        try {
+            // saved states are always pure text (multimodal prompts are skipped when saving)
+            state.prompt.tokens = server_tokens::deserialize(packed, false);
+        } catch (const std::exception &) {
+            continue;
+        }
+        states.push_back(std::move(state));
+        n_loaded++;
+    }
+    SRV_INF(" - loaded %d prompt(s) from the prompt cache file '%s'\n", n_loaded, path.c_str());
+    return n_loaded;
 }

@@ -78,6 +78,10 @@ struct server_context {
     // terminate main loop (will unblock start_loop)
     void terminate();
 
+    // save the prompt cache to cache-ram-file, if set (no-op otherwise)
+    // should only be used from the main thread, after start_loop() has returned
+    void save_prompt_cache_file();
+
     // get the underlaying llama_context, can return nullptr if sleeping
     // not thread-safe, should only be used from the main thread
     llama_context * get_llama_context() const;
