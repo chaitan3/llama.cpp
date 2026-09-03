@@ -5,8 +5,6 @@
 #include "fit.h"
 #include "log.h"
 
-#include <cinttypes>
-
 #if defined(_MSC_VER)
 #pragma warning(disable: 4244 4267) // possible loss of data
 #endif
@@ -41,31 +39,7 @@ int llama_fit_params(int argc, char ** argv) {
 
         LOG_INF("%s: printing fitted CLI arguments to stdout...\n", __func__);
         common_log_flush(common_log_main());
-        printf("-c %" PRIu32 " -ngl %" PRIi32, cparams.n_ctx, mparams.n_gpu_layers);
-
-        size_t nd = llama_max_devices();
-        while (nd > 1 && mparams.tensor_split[nd - 1] == 0.0f) {
-            nd--;
-        }
-        if (nd > 1) {
-            for (size_t id = 0; id < nd; id++) {
-                if (id == 0) {
-                    printf(" -ts ");
-                }
-                printf("%s%" PRIu32, id > 0 ? "," : "", uint32_t(mparams.tensor_split[id]));
-            }
-        }
-
-        const size_t ntbo = llama_max_tensor_buft_overrides();
-        bool any_tbo = false;
-        for (size_t itbo = 0; itbo < ntbo && mparams.tensor_buft_overrides[itbo].pattern != nullptr; itbo++) {
-            if (itbo == 0) {
-                printf(" -ot \"");
-            }
-            printf("%s%s=%s", itbo > 0 ? "," : "", mparams.tensor_buft_overrides[itbo].pattern, ggml_backend_buft_name(mparams.tensor_buft_overrides[itbo].buft));
-            any_tbo = true;
-        }
-        printf("%s\n", any_tbo ? "\"" : "");
+        printf("%s\n", common_fit_args_string(&mparams, &cparams).c_str());
     } else {
         LOG_INF("%s: printing estimated memory in MiB to stdout (device, model, context, compute) ...\n", __func__);
         common_log_flush(common_log_main());

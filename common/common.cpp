@@ -1264,6 +1264,7 @@ void common_fit_apply(common_params & params, llama_model_params & mparams, llam
         /*.shares_model =*/ !has_draft, // an MTP context runs on the weights of the main model
     };
 
+    const common_params_fit_status fit_status =
     common_fit_params(params.model.get_paths(), &mparams, &cparams,
         params.tensor_split,
         params.tensor_buft_overrides.data(),
@@ -1271,6 +1272,10 @@ void common_fit_apply(common_params & params, llama_model_params & mparams, llam
         params.fit_params_min_ctx,
         has_draft || spec_mtp ? &extra : nullptr,
         params.verbosity >= LOG_LEVEL_DEBUG ? GGML_LOG_LEVEL_DEBUG : GGML_LOG_LEVEL_ERROR);
+
+    if (fit_status == COMMON_PARAMS_FIT_STATUS_SUCCESS) {
+        LOG_INF("%s\n", common_fit_args_string(&mparams, &cparams).c_str());
+    }
 }
 
 common_init_result::common_init_result(common_params & params, bool model_only) :

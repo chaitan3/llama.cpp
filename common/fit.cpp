@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <cinttypes>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -1225,4 +1226,39 @@ void common_fit_print(
     printf("%zu ", dmd.back().mb.context/1024/1024);
     printf("%zu ", dmd.back().mb.compute/1024/1024);
     printf("\n");
+}
+
+// build a CLI arguments string that reproduces the fitted parameters, for use in future runs
+std::string common_fit_args_string(
+        const llama_model_params * mparams,
+        const llama_context_params * cparams) {
+    std::ostringstream oss;
+    oss << "-c " << cparams->n_ctx << " -ngl " << mparams->n_gpu_layers;
+
+    size_t nd = llama_max_devices();
+    while (nd > 1 && mparams->tensor_split[nd - 1] == 0.0f) {
+        nd--;
+    }
+    if (nd > 1) {
+        oss << " -ts ";
+        for (size_t id = 0; id < nd; id++) {
+            oss << (id > 0 ? "," : "") << uint32_t(mparams->tensor_split[id]);
+        }
+    }
+
+    const size_t ntbo = llama_max_tensor_buft_overrides();
+    bool any_tbo = false;
+    for (size_t itbo = 0; itbo < ntbo && mparams->tensor_buft_overrides[itbo].pattern != nullptr; itbo++) {
+        if (itbo == 0) {
+            oss << " -ot \"";
+        }
+        oss << (itbo > 0 ? "," : "") << mparams->tensor_buft_overrides[itbo].pattern
+            << "=" << ggml_backend_buft_name(mparams->tensor_buft_overrides[itbo].buft);
+        any_tbo = true;
+    }
+    if (any_tbo) {
+        oss << "\"";
+    }
+
+    return oss.str();
 }

@@ -44,6 +44,11 @@ void common_fit_print(
                  llama_model_params * mparams,
                llama_context_params * cparams);
 
+// build a CLI arguments string that reproduces the fitted parameters, for use in future runs
+std::string common_fit_args_string(
+                 const llama_model_params * mparams,
+               const llama_context_params * cparams);
+
 void common_memory_breakdown_print(const llama_context * ctx);
 
 // one row of the memory breakdown: a device, the host or another buffer type
